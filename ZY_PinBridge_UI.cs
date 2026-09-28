@@ -255,19 +255,24 @@ public class AdapterForm : Form {
     }
 
     // ---- Serial send + log ----
-    void SendToSerial(string raw, string source) {
+	// Split a (possibly batched) command on ';', send each piece as its own line, log each.
+	void SendToSerial(string raw, string source) {
         if (string.IsNullOrEmpty(raw)) return;
-        if (sp == null || !sp.IsOpen) {
-            AddLog(source, raw, "(not connected)");
-            return;
+        if (sp == null || !sp.IsOpen) { AddLog(source, raw, "(not connected)"); return; }
+
+        string[] parts = raw.Split(';');
+        // Build one combined line for the Arduino (its firmware splits on ';')
+        var sb = new StringBuilder();
+        foreach (string part in parts) {
+            string cmd = part.Trim();
+            if (cmd.Length == 0) continue;
+            string serialCmd = cmd.Replace(",", " ");
+            if (sb.Length > 0) sb.Append(';');
+            sb.Append(serialCmd);
+            AddLog(source, cmd, serialCmd);   // log each piece separately
         }
-        string serialCmd = raw.Replace(",", " ");
-        try {
-            sp.WriteLine(serialCmd);
-            AddLog(source, raw, serialCmd);
-        } catch (Exception ex) {
-            AddLog(source, raw, "ERR: " + ex.Message);
-        }
+        try { sp.WriteLine(sb.ToString()); }   // send once, no inter-command sleep
+        catch (Exception ex) { AddLog(source, raw, "ERR: " + ex.Message); }
     }
 
     void SerialDataReceived(object sender, SerialDataReceivedEventArgs e) {
@@ -276,7 +281,7 @@ public class AdapterForm : Form {
             if (resp.Length > 0) AddReply(resp);
         } catch { }
     }
-
+	
     // ---- Logging (thread-safe) : only commands sent to Arduino ----
     void AddLog(string source, string received, string sent) {
         if (InvokeRequired) { BeginInvoke(new Action(() => AddLog(source, received, sent))); return; }
